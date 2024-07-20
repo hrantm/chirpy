@@ -58,16 +58,24 @@ func (db *DB) loadDB() (DBStructure, error) {
 }
 
 func (db *DB) CreateChirp(body string) (Chirp, error) {
-	chirps, err := db.GetChirps()
 	var chirp Chirp
+	loadedData, err := db.loadDB()
 	if err != nil {
 		return chirp, err
 	}
 	largestId := 0
 	data := DBStructure{
 		Chirps: make(map[int]Chirp),
+		Users:  make(map[int]User),
 	}
-	for _, c := range chirps {
+	if loadedData.Users != nil {
+		data.Users = loadedData.Users
+	}
+	if loadedData.Chirps != nil {
+		data.Chirps = loadedData.Chirps
+	}
+
+	for _, c := range data.Chirps {
 		if c.Id > largestId {
 			largestId = c.Id
 		}
