@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"text/template"
 )
 
@@ -56,7 +57,8 @@ func handleValidateChirp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type returnVals struct {
-		Valid bool `json:"valid"`
+		Valid       bool   `json:"valid"`
+		CleanedBody string `json:"cleaned_body"`
 	}
 	respBody := returnVals{
 		Valid: true,
@@ -66,6 +68,21 @@ func handleValidateChirp(w http.ResponseWriter, r *http.Request) {
 		respBody.Valid = false
 		statusCode = 400
 	}
+	new_body := []string{}
+	profanes := map[string]bool{
+		"kerfuffle": true,
+		"sharbert":  true,
+		"fornax":    true,
+	}
+	for _, val := range strings.Split(params.Body, " ") {
+		_, ok := profanes[strings.ToLower(val)]
+		if ok {
+			new_body = append(new_body, "****")
+		} else {
+			new_body = append(new_body, val)
+		}
+	}
+	respBody.CleanedBody = strings.Join(new_body, " ")
 	data, err := json.Marshal(respBody)
 
 	if err != nil {
