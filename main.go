@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"text/template"
@@ -31,12 +32,52 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handleMetrics)
 	mux.HandleFunc("GET /api/reset", apiCfg.handleReset)
 
+	mux.HandleFunc("POST /api/validate_chirp", handleValidateChirp)
+
 	server := &http.Server{Handler: mux, Addr: ":" + port}
 	log.Printf("Serving on port: %s\n", port)
 	err := server.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func handleValidateChirp(w http.ResponseWriter, r *http.Request) {
+	type parameters struct {
+		Body string `json:"body"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+
+	if err != nil {
+		log.Printf("Error decoding parameters %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+	type returnVals struct {
+		Valid bool `json:"valid"`
+	}
+	respBody := returnVals{
+		Valid: true,
+	}
+	statusCode := 200
+	if len(params.Body) > 140 {
+		respBody.Valid = false
+		statusCode = 400
+	}
+	data, err := json.Marshal(respBody)
+
+	if err != nil {
+		log.Printf("Error marshalling json %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	w.Header().Add("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	w.Write(data)
+
 }
 
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
