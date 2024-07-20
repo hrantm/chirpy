@@ -10,7 +10,7 @@ func main() {
 	const port = "8080"
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.Dir(pathRoot)))
-	server := http.Server{Handler: mux, Addr: ":" + port}
+	server := &http.Server{Handler: mux, Addr: ":" + port}
 	log.Printf("Serving on port: %s\n", port)
 	err := server.ListenAndServe()
 	if err != nil {
