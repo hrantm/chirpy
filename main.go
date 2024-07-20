@@ -6,6 +6,7 @@ import (
 	"hrantm/chirpy/db"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"text/template"
 )
@@ -49,6 +50,7 @@ func main() {
 
 	mux.HandleFunc("POST /api/chirps", app.handlePostChirp)
 	mux.HandleFunc("GET /api/chirps", app.handleGetChirps)
+	mux.HandleFunc("GET /api/chirps/{chirpid}", app.handleGetChirpById)
 
 	server := &http.Server{Handler: mux, Addr: ":" + port}
 	log.Printf("Serving on port: %s\n", port)
@@ -58,6 +60,35 @@ func main() {
 	}
 }
 
+func (a *App) handleGetChirpById(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("chirpid")
+
+	strId, err := strconv.Atoi(id)
+	if err != nil {
+		log.Printf("Error converting id to int, bad id %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	chirp, err := a.DB.GetChirpById(strId)
+	if err != nil {
+		log.Printf("Error getting Chirps %s:", err)
+		w.WriteHeader(404)
+		return
+	}
+
+	data, err := json.Marshal(chirp)
+	if err != nil {
+		log.Printf("Error Marshalling json %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	w.Header().Add("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
 func (a *App) handleGetChirps(w http.ResponseWriter, r *http.Request) {
 	chirps, err := a.DB.GetChirps()
 	if err != nil {
@@ -65,11 +96,6 @@ func (a *App) handleGetChirps(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
-
-	// type returnVals struct {
-	// 	Id   int    `json:"id"`
-	// 	Body string `json:"body"`
-	// }
 
 	data, err := json.Marshal(chirps)
 

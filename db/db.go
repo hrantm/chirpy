@@ -2,6 +2,7 @@ package db
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"sort"
 	"sync"
@@ -115,4 +116,22 @@ func (db *DB) GetChirps() ([]Chirp, error) {
 		return chirps[i].Id < chirps[j].Id
 	})
 	return chirps, nil
+}
+
+func (db *DB) GetChirpById(id int) (Chirp, error) {
+	var chirp Chirp
+	data, err := db.loadDB()
+	if err != nil {
+		return chirp, nil
+	}
+	for k, v := range data.Chirps {
+		if k == id {
+			chirp = v
+			break
+		}
+	}
+	if chirp.Id == 0 {
+		return chirp, errors.New("Chirp not found in db")
+	}
+	return chirp, nil
 }
