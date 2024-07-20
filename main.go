@@ -1,9 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
+	"text/template"
 )
 
 type apiConfig struct {
@@ -27,9 +27,9 @@ func main() {
 	apiCfg := &apiConfig{}
 	mux.Handle("/app/*", apiCfg.middlewareMetricsInc(appHandler))
 
-	mux.HandleFunc("/healthz", handleHealthz)
-	mux.HandleFunc("/metrics", apiCfg.handleMetrics)
-	mux.HandleFunc("/reset", apiCfg.handleReset)
+	mux.HandleFunc("GET /api/healthz", handleHealthz)
+	mux.HandleFunc("GET /admin/metrics", apiCfg.handleMetrics)
+	mux.HandleFunc("GET /api/reset", apiCfg.handleReset)
 
 	server := &http.Server{Handler: mux, Addr: ":" + port}
 	log.Printf("Serving on port: %s\n", port)
@@ -46,9 +46,27 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Add("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("Hits: %d", cfg.fileserverHits)))
+	const htmlTemplate = `
+	<!DOCTYPE html>
+	<html>
+
+	<body>
+		<h1>Welcome, Chirpy Admin</h1>
+		<p>Chirpy has been visited {{.Hits}} times!</p>
+	</body>
+	
+	</html>`
+
+	tmpl := template.Must(template.New("metrics").Parse(htmlTemplate))
+	data := struct {
+		Hits int
+	}{
+		Hits: cfg.fileserverHits,
+	}
+	tmpl.Execute(w, data)
+
 }
 
 func (cfg *apiConfig) handleReset(w http.ResponseWriter, r *http.Request) {
