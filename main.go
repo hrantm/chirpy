@@ -52,12 +52,44 @@ func main() {
 	mux.HandleFunc("GET /api/chirps", app.handleGetChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpid}", app.handleGetChirpById)
 
+	mux.HandleFunc("POST /api/users", app.handlePostUser)
+
 	server := &http.Server{Handler: mux, Addr: ":" + port}
 	log.Printf("Serving on port: %s\n", port)
 	err = server.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func (a *App) handlePostUser(w http.ResponseWriter, r *http.Request) {
+	type params struct {
+		Email string `json:"email"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	u := params{}
+	err := decoder.Decode(&u)
+
+	if err != nil {
+		log.Printf("Error decoding parameters %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	user, _ := a.DB.CreateUser(u.Email)
+
+	resp, err := json.Marshal(user)
+	if err != nil {
+		log.Printf("Error marshalling data %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	w.Header().Add("Content-Type", "application/json")
+	w.WriteHeader(201)
+	w.Write(resp)
+
 }
 
 func (a *App) handleGetChirpById(w http.ResponseWriter, r *http.Request) {
