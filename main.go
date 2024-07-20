@@ -1,16 +1,17 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"net/http"
 )
 
 func main() {
+	port := "8080"
 	mux := http.NewServeMux()
-	server := http.Server{Handler: mux, Addr: ":8080"}
-	fmt.Println("Starting Server on port 8080")
+	server := http.Server{Handler: mux, Addr: ":" + port}
+	log.Printf("Serving on port: %s\n", port)
 	err := server.ListenAndServe()
 	if err != nil {
-		fmt.Println("Error Starting Server", err)
+		log.Fatal(err)
 	}
 }
