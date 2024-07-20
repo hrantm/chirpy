@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"hrantm/chirpy/db"
 	"log"
 	"net/http"
 	"strings"
@@ -10,7 +12,10 @@ import (
 
 type apiConfig struct {
 	fileserverHits int
-	// mu             sync.Mutex
+}
+
+type App struct {
+	DB *db.DB
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -23,6 +28,15 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 func main() {
 	const pathRoot = "."
 	const port = "8080"
+	const dbPath = "/Users/hrant/chirpy/database.json"
+
+	db, err := db.NewDB(dbPath)
+
+	if err != nil {
+		fmt.Println("FAILED TO INITIALIZE")
+	}
+	app := &App{DB: db}
+
 	mux := http.NewServeMux()
 
 	appHandler := http.StripPrefix("/app", http.FileServer(http.Dir(pathRoot)))
@@ -33,17 +47,46 @@ func main() {
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handleMetrics)
 	mux.HandleFunc("GET /api/reset", apiCfg.handleReset)
 
-	mux.HandleFunc("POST /api/validate_chirp", handleValidateChirp)
+	mux.HandleFunc("POST /api/chirps", app.handlePostChirp)
+	mux.HandleFunc("GET /api/chirps", app.handleGetChirps)
 
 	server := &http.Server{Handler: mux, Addr: ":" + port}
 	log.Printf("Serving on port: %s\n", port)
-	err := server.ListenAndServe()
+	err = server.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func handleValidateChirp(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleGetChirps(w http.ResponseWriter, r *http.Request) {
+	chirps, err := a.DB.GetChirps()
+	if err != nil {
+		log.Printf("Error getting Chirps %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	// type returnVals struct {
+	// 	Id   int    `json:"id"`
+	// 	Body string `json:"body"`
+	// }
+
+	data, err := json.Marshal(chirps)
+
+	if err != nil {
+		log.Printf("Error marshalling data %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	w.Header().Add("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+
+}
+
+func (a *App) handlePostChirp(w http.ResponseWriter, r *http.Request) {
+
 	type parameters struct {
 		Body string `json:"body"`
 	}
@@ -57,18 +100,20 @@ func handleValidateChirp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type returnVals struct {
+		Id          int    `json:"id"`
 		Valid       bool   `json:"valid"`
 		CleanedBody string `json:"cleaned_body"`
+		Body        string `json:"body"`
 	}
 	respBody := returnVals{
 		Valid: true,
 	}
-	statusCode := 200
+	statusCode := 201
 	if len(params.Body) > 140 {
 		respBody.Valid = false
 		statusCode = 400
 	}
-	new_body := []string{}
+	newBody := []string{}
 	profanes := map[string]bool{
 		"kerfuffle": true,
 		"sharbert":  true,
@@ -77,12 +122,22 @@ func handleValidateChirp(w http.ResponseWriter, r *http.Request) {
 	for _, val := range strings.Split(params.Body, " ") {
 		_, ok := profanes[strings.ToLower(val)]
 		if ok {
-			new_body = append(new_body, "****")
+			newBody = append(newBody, "****")
 		} else {
-			new_body = append(new_body, val)
+			newBody = append(newBody, val)
 		}
 	}
-	respBody.CleanedBody = strings.Join(new_body, " ")
+	respBody.Body = params.Body
+	respBody.CleanedBody = strings.Join(newBody, " ")
+
+	chirp, err := a.DB.CreateChirp(respBody.CleanedBody)
+	if err != nil {
+		log.Printf("Error creating chirp %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+	respBody.Id = chirp.Id
+
 	data, err := json.Marshal(respBody)
 
 	if err != nil {
