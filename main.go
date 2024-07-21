@@ -6,19 +6,21 @@ import (
 	"hrantm/chirpy/db"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/joho/godotenv"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type apiConfig struct {
 	fileserverHits int
-}
-
-type App struct {
-	DB *db.DB
+	DB             *db.DB
+	JWTSecret      string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -29,6 +31,7 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 }
 
 func main() {
+	godotenv.Load()
 	const pathRoot = "."
 	const port = "8080"
 	const dbPath = "/Users/hrant/chirpy/database.json"
@@ -38,24 +41,28 @@ func main() {
 	if err != nil {
 		fmt.Println("FAILED TO INITIALIZE")
 	}
-	app := &App{DB: db}
 
 	mux := http.NewServeMux()
 
 	appHandler := http.StripPrefix("/app", http.FileServer(http.Dir(pathRoot)))
-	apiCfg := &apiConfig{}
+	apiCfg := &apiConfig{
+		DB:             db,
+		fileserverHits: 0,
+		JWTSecret:      os.Getenv("JWT_SECRET"),
+	}
 	mux.Handle("/app/*", apiCfg.middlewareMetricsInc(appHandler))
 
 	mux.HandleFunc("GET /api/healthz", handleHealthz)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handleMetrics)
 	mux.HandleFunc("GET /api/reset", apiCfg.handleReset)
 
-	mux.HandleFunc("POST /api/chirps", app.handlePostChirp)
-	mux.HandleFunc("GET /api/chirps", app.handleGetChirps)
-	mux.HandleFunc("GET /api/chirps/{chirpid}", app.handleGetChirpById)
+	mux.HandleFunc("POST /api/chirps", apiCfg.handlePostChirp)
+	mux.HandleFunc("GET /api/chirps", apiCfg.handleGetChirps)
+	mux.HandleFunc("GET /api/chirps/{chirpid}", apiCfg.handleGetChirpById)
 
-	mux.HandleFunc("POST /api/users", app.handlePostUser)
-	mux.HandleFunc("POST /api/login", app.handlePostLogin)
+	mux.HandleFunc("POST /api/users", apiCfg.handlePostUser)
+	mux.HandleFunc("PUT /api/users", apiCfg.handlePutUser)
+	mux.HandleFunc("POST /api/login", apiCfg.handlePostLogin)
 
 	server := &http.Server{Handler: mux, Addr: ":" + port}
 	log.Printf("Serving on port: %s\n", port)
@@ -65,10 +72,35 @@ func main() {
 	}
 }
 
-func (a *App) handlePostLogin(w http.ResponseWriter, r *http.Request) {
+func (a *apiConfig) handlePutUser(w http.ResponseWriter, r *http.Request) {
+	type Claims struct {
+		jwt.RegisteredClaims
+	}
+	tokenString := strings.Split(r.Header.Get("Authorization"), " ")[1]
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte(a.JWTSecret), nil
+	})
+	if err != nil {
+		log.Printf("Error parsing jwt %s:", err)
+		w.WriteHeader(401)
+		return
+	}
+
+	id, err := token.Claims.GetSubject()
+	if err != nil {
+		log.Printf("Error parsing id from jwt %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+	w.WriteHeader(200)
+}
+
+func (a *apiConfig) handlePostLogin(w http.ResponseWriter, r *http.Request) {
+
 	type params struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email            string `json:"email"`
+		Password         string `json:"password"`
+		ExpiresInSeconds int    `json:"expires_in_seconds"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -88,6 +120,27 @@ func (a *App) handlePostLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tAdd := 24 * time.Hour
+	if p.ExpiresInSeconds > 0 && p.ExpiresInSeconds < 60*p.ExpiresInSeconds*24 {
+		tAdd = time.Second * time.Duration(p.ExpiresInSeconds)
+	}
+	mySigningKey := []byte(a.JWTSecret)
+	fmt.Println("SUBJECT", user.Id)
+	claims := &jwt.RegisteredClaims{
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(tAdd)),
+		Issuer:    "chirpy",
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+		Subject:   strconv.Itoa(user.Id),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	ss, err := token.SignedString(mySigningKey)
+	if err != nil {
+		log.Printf("Error signing jwt %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+
 	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(p.Password))
 	if err != nil {
 		log.Printf("Incorrect password %s:", err)
@@ -98,11 +151,13 @@ func (a *App) handlePostLogin(w http.ResponseWriter, r *http.Request) {
 	type returnVals struct {
 		Id    int    `json:"id"`
 		Email string `json:"email"`
+		Token string `json:"token"`
 	}
 
 	resp := returnVals{
 		Id:    user.Id,
 		Email: user.Email,
+		Token: ss,
 	}
 
 	data, err := json.Marshal(resp)
@@ -118,7 +173,7 @@ func (a *App) handlePostLogin(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-func (a *App) handlePostUser(w http.ResponseWriter, r *http.Request) {
+func (a *apiConfig) handlePostUser(w http.ResponseWriter, r *http.Request) {
 	type params struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -161,7 +216,7 @@ func (a *App) handlePostUser(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (a *App) handleGetChirpById(w http.ResponseWriter, r *http.Request) {
+func (a *apiConfig) handleGetChirpById(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("chirpid")
 
 	strId, err := strconv.Atoi(id)
@@ -190,7 +245,7 @@ func (a *App) handleGetChirpById(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
-func (a *App) handleGetChirps(w http.ResponseWriter, r *http.Request) {
+func (a *apiConfig) handleGetChirps(w http.ResponseWriter, r *http.Request) {
 	chirps, err := a.DB.GetChirps()
 	if err != nil {
 		log.Printf("Error getting Chirps %s:", err)
@@ -212,7 +267,7 @@ func (a *App) handleGetChirps(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (a *App) handlePostChirp(w http.ResponseWriter, r *http.Request) {
+func (a *apiConfig) handlePostChirp(w http.ResponseWriter, r *http.Request) {
 
 	type parameters struct {
 		Body string `json:"body"`
