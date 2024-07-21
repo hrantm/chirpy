@@ -92,6 +92,7 @@ func (a *apiConfig) handlePutUser(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
+	fmt.Println(id)
 	w.WriteHeader(200)
 }
 
