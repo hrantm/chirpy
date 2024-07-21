@@ -96,11 +96,16 @@ func (a *App) handlePostLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type returnVals struct {
-		Id    string `json:"id"`
+		Id    int    `json:"id"`
 		Email string `json:"email"`
 	}
 
-	data, err := json.Marshal(user)
+	resp := returnVals{
+		Id:    user.Id,
+		Email: user.Email,
+	}
+
+	data, err := json.Marshal(resp)
 
 	if err != nil {
 		log.Printf("Error Marshalling Json %s:", err)
@@ -135,7 +140,13 @@ func (a *App) handlePostUser(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
-	user, _ := a.DB.CreateUser(u.Email, string(hashedPass))
+	user, err := a.DB.CreateUser(u.Email, string(hashedPass))
+
+	if err != nil {
+		log.Printf("Error creating user %s:", err)
+		w.WriteHeader(500)
+		return
+	}
 
 	resp, err := json.Marshal(user)
 	if err != nil {
