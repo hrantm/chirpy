@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type apiConfig struct {
@@ -53,6 +55,7 @@ func main() {
 	mux.HandleFunc("GET /api/chirps/{chirpid}", app.handleGetChirpById)
 
 	mux.HandleFunc("POST /api/users", app.handlePostUser)
+	mux.HandleFunc("POST /api/login", app.handlePostLogin)
 
 	server := &http.Server{Handler: mux, Addr: ":" + port}
 	log.Printf("Serving on port: %s\n", port)
@@ -62,9 +65,58 @@ func main() {
 	}
 }
 
+func (a *App) handlePostLogin(w http.ResponseWriter, r *http.Request) {
+	type params struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	p := params{}
+	err := decoder.Decode(&p)
+	if err != nil {
+		log.Printf("Error decoding parameters %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	user, err := a.DB.GetUserByEmail(p.Email)
+
+	if err != nil {
+		log.Printf("Error Fetching user %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(p.Password))
+	if err != nil {
+		log.Printf("Incorrect password %s:", err)
+		w.WriteHeader(401)
+		return
+	}
+
+	type returnVals struct {
+		Id    string `json:"id"`
+		Email string `json:"email"`
+	}
+
+	data, err := json.Marshal(user)
+
+	if err != nil {
+		log.Printf("Error Marshalling Json %s:", err)
+		w.WriteHeader(401)
+		return
+	}
+
+	w.Header().Add("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(data)
+}
+
 func (a *App) handlePostUser(w http.ResponseWriter, r *http.Request) {
 	type params struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -77,7 +129,13 @@ func (a *App) handlePostUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, _ := a.DB.CreateUser(u.Email)
+	hashedPass, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("Error hashing password %s:", err)
+		w.WriteHeader(500)
+		return
+	}
+	user, _ := a.DB.CreateUser(u.Email, string(hashedPass))
 
 	resp, err := json.Marshal(user)
 	if err != nil {

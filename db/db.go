@@ -19,8 +19,9 @@ type Chirp struct {
 }
 
 type User struct {
-	Id    int    `json:"id"`
-	Email string `json:"email"`
+	Id       int    `json:"id"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 type DBStructure struct {
@@ -150,7 +151,7 @@ func (db *DB) GetChirpById(id int) (Chirp, error) {
 	return chirp, nil
 }
 
-func (db *DB) CreateUser(email string) (User, error) {
+func (db *DB) CreateUser(email string, password string) (User, error) {
 	var user User
 	data := DBStructure{
 		Chirps: make(map[int]Chirp),
@@ -169,6 +170,9 @@ func (db *DB) CreateUser(email string) (User, error) {
 
 	largestId := 0
 	for _, u := range data.Users {
+		if u.Email == email {
+			return user, errors.New("User with this email already exists")
+		}
 		if u.Id > largestId {
 			largestId = u.Id
 		}
@@ -176,8 +180,9 @@ func (db *DB) CreateUser(email string) (User, error) {
 	}
 
 	data.Users[largestId+1] = User{
-		Email: email,
-		Id:    largestId + 1,
+		Email:    email,
+		Id:       largestId + 1,
+		Password: password,
 	}
 	err = db.writeDB(data)
 	if err != nil {
@@ -199,4 +204,20 @@ func (db *DB) GetUsers() ([]User, error) {
 	}
 
 	return users, nil
+}
+
+func (db *DB) GetUserByEmail(email string) (User, error) {
+	var user User
+	data, err := db.loadDB()
+	if err != nil {
+		return user, err
+	}
+
+	for _, u := range data.Users {
+		if u.Email == email {
+			return u, nil
+		}
+	}
+
+	return user, nil
 }
